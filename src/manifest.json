@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Seesaw Sidebar for parents",
+  "version": "1.0",
+  "description": "Seesaw Sidebar extension for parents.",
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "action": {
+    "default_title": "Seesaw Sidebar for parents",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "sidePanel",
+    "alarms",
+    "storage",
+    "webRequest",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": ["https://app.seesaw.me/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
