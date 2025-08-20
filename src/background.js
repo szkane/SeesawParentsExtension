@@ -1,125 +1,95 @@
-// 初始化变量
+// 全局变量
 let unreadMessageCount = 0;
+const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
-// 初始化函数
-function init() {
-  // 初始化webRequest监听器
-  initWebRequestListener();
-  
-  // 设置定时检查新消息
-  chrome.alarms.create('checkMessages', { periodInMinutes: 5 });
+// 用于防止重复创建的“锁”
+let creatingOffscreenDocument;
+
+// 创建离屏文档的函数（已修复竞态条件）
+async function createOffscreenDocument() {
+  // 如果已存在，则直接返回
+  if (await chrome.offscreen.hasDocument()) {
+    console.log("Offscreen document already exists.");
+    return;
+  }
+
+  // 如果正在创建中，则等待创建完成
+  if (creatingOffscreenDocument) {
+    console.log("Waiting for existing offscreen document creation to complete.");
+    await creatingOffscreenDocument;
+    return;
+  }
+
+  // 设置“锁”，开始创建
+  console.log("Creating offscreen document...");
+  creatingOffscreenDocument = chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    reasons: ['DOM_PARSER'],
+    justification: 'To check for unread Seesaw messages in the background'
+  });
+
+  try {
+    // 等待创建完成
+    await creatingOffscreenDocument;
+  } finally {
+    // 无论成功与否，都释放“锁”
+    creatingOffscreenDocument = null;
+  }
 }
 
-// 监听扩展图标点击事件
-chrome.action.onClicked.addListener(async (tab) => {
-  // 打开侧边栏
-  await chrome.sidePanel.open({ tabId: tab.id });
-  
-  // 重置未读消息数量
-  resetBadge();
+// 关闭离屏文档的函数
+async function closeOffscreenDocument() {
+  if (!(await chrome.offscreen.hasDocument())) {
+    console.log("No offscreen document to close.");
+    return;
+  }
+  console.log("Closing offscreen document...");
+  await chrome.offscreen.closeDocument();
+}
+
+// 扩展安装或更新时运行
+chrome.runtime.onInstalled.addListener(async () => {
+  console.log("Extension installed or updated.");
+  // 创建一个周期性闹钟，每5分钟检查一次消息
+  chrome.alarms.create('checkMessages', { periodInMinutes: 5 });
+  // 立即执行一次检查
+  await createOffscreenDocument();
 });
 
-// 设置定时检查新消息
-chrome.alarms.onAlarm.addListener((alarm) => {
+// 监听闹钟事件
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkMessages') {
-    checkForNewMessages();
+    console.log("Alarm triggered: closing and recreating offscreen document.");
+    await closeOffscreenDocument();
+    await createOffscreenDocument();
   }
 });
 
-// 监听来自sidepanel.js的消息
+// 监听扩展图标点击事件，打开侧边栏
+chrome.action.onClicked.addListener(async (tab) => {
+  await chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// 监听来自其他脚本的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'sidepanel_loaded') {
-    console.log('Side panel loaded');
-    console.log('Background script received message:', message);
-    // 侧边栏已加载，可以重置未读消息
+    console.log('Side panel has been loaded.');
     resetBadge();
-    // 检查消息
-    checkForNewMessages;
-    sendResponse({status: "ok"}); 
-  } else if (message.action === 'check_messages') {
-    checkForNewMessages();
-    sendResponse({status: "checking"}); 
+    sendResponse({status: "badge_reset"});
   } else if (message.action === 'unread_message_count') {
-    // 接收从侧边栏传来的未读消息数量
+    console.log(`Received message count: ${message.count}`);
     handleMessageCount(message.count);
-    sendResponse({status: "updated"}); 
-  } else if (message.action === 'inject_script_to_iframe') {
-    // 处理注入脚本到iframe的请求
-    sendResponse({status: "no_action_needed"}); 
-  }else{
-    sendResponse({status: "unknown_action", action: message.action});
+    sendResponse({status: "count_updated"});
   }
+  return true; // 保持通道开放以备将来使用
 });
 
-// 初始化webRequest监听器
-function initWebRequestListener() {
-  // 监听对Seesaw消息页面的请求
-  chrome.webRequest.onCompleted.addListener(
-    function(details) {
-      // 当页面加载完成时，检查消息
-      if (details.type === 'main_frame' || details.type === 'xmlhttprequest') {
-        // 延迟一下，确保页面完全加载
-        setTimeout(checkForNewMessages, 1000);
-      }
-    },
-    { urls: ["https://app.seesaw.me/*"] }
-  );
-}
-
-// 检查新消息的函数
-function checkForNewMessages() {
-  // 获取当前所有标签页
-  chrome.tabs.query({url: "https://app.seesaw.me/*"}, function(tabs) {
-    if (tabs.length > 0) {
-      // 如果有Seesaw标签页打开，在该页面执行脚本
-      chrome.scripting.executeScript({
-        target: {tabId: tabs[0].id},
-        function: extractUnreadMessages
-      }, (results) => {
-        if (results && results[0] && results[0].result !== undefined) {
-          handleMessageCount(results[0].result);
-        }
-      });
-    } else {
-      // 如果没有Seesaw标签页，尝试通过侧边栏检查
-      chrome.runtime.sendMessage({action: 'inject_script_to_iframe'})
-      .catch((error) => {
-        console.log("Attempted to send message to a closed side panel. This is expected.");
-      });
-    }
-  });
-}
-
-// 在页面上下文中执行的函数，提取未读消息数量
-function extractUnreadMessages() {
-  // 查找消息按钮
-  const messageButton = document.querySelector('button[data-testid=":reloaded-messaging-button"]');
-  
-  if (messageButton) {
-    const ariaLabel = messageButton.getAttribute('aria-label');
-    
-    // 检查aria-label属性
-    if (ariaLabel && ariaLabel !== 'Messages, 0 unread messages') {
-      // 提取未读消息数量
-      const match = ariaLabel.match(/(\d+) unread messages/);
-      if (match && match[1]) {
-        return parseInt(match[1], 10);
-      }
-      return 1; // 如果有未读消息但无法确定数量，则返回1
-    }
-  }
-  
-  return 0; // 没有未读消息
-}
-
-// 处理从侧边栏接收到的消息数量
+// 处理获取到的消息数量
 function handleMessageCount(count) {
-  // 只有当消息数量变化时才更新
   if (count !== unreadMessageCount) {
+    console.log(`Updating count from ${unreadMessageCount} to ${count}`);
     unreadMessageCount = count;
     updateBadge();
-    
-    // 存储未读消息数量
     chrome.storage.local.set({ 'unreadMessages': unreadMessageCount });
   }
 }
@@ -127,33 +97,28 @@ function handleMessageCount(count) {
 // 更新扩展图标上的徽章
 function updateBadge() {
   if (unreadMessageCount > 0) {
-    // 设置徽章文本
     chrome.action.setBadgeText({ text: unreadMessageCount.toString() });
     chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
-    // 设置徽章背景颜色
     chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
   } else {
-    // 清除徽章
     chrome.action.setBadgeText({ text: '' });
   }
 }
 
-// 重置徽章
+// 重置徽章和计数的函数
 function resetBadge() {
   unreadMessageCount = 0;
   updateBadge();
   chrome.storage.local.set({ 'unreadMessages': 0 });
 }
 
-// 初始化时从存储中恢复未读消息计数
-chrome.storage.local.get(['unreadMessages'], (result) => {
+// 初始化：扩展启动时，从存储中恢复上次的计数
+(async () => {
+  const result = await chrome.storage.local.get(['unreadMessages']);
   if (result.unreadMessages) {
     unreadMessageCount = result.unreadMessages;
     updateBadge();
   }
-});
-
-// 确保在扩展加载完成后初始化
-chrome.runtime.onInstalled.addListener(() => {
-  init();
-});
+  // 启动时也创建一次离屏文档
+  await createOffscreenDocument();
+})();

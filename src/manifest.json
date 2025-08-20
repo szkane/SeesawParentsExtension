@@ -26,11 +26,18 @@
     "sidePanel",
     "alarms",
     "storage",
-    "webRequest",
     "scripting",
-    "tabs"
+    "tabs",
+    "offscreen"
   ],
   "host_permissions": ["https://app.seesaw.me/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://app.seesaw.me/*"],
+      "js": ["content_scraper.js"],
+      "all_frames": true
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
