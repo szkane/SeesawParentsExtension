@@ -5,7 +5,7 @@ const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 // 用于防止重复创建的“锁”
 let creatingOffscreenDocument;
 
-// 创建离屏文档的函数（已修复竞态条件）
+// 创建离屏文档的函数
 async function createOffscreenDocument() {
   // 如果已存在，则直接返回
   if (await chrome.offscreen.hasDocument()) {
@@ -50,17 +50,24 @@ async function closeOffscreenDocument() {
 // 扩展安装或更新时运行
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("Extension installed or updated.");
-  // 创建一个周期性闹钟，每5分钟检查一次消息
-  chrome.alarms.create('checkMessages', { periodInMinutes: 5 });
-  // 立即执行一次检查
-  await createOffscreenDocument();
 });
+
+// 浏览器启动时运行
+chrome.runtime.onStartup.addListener(async () => {
+  console.log("Seesaw Parents Extension background started.");
+});
+
+// 确保 service worker 保持活跃
+const keepAlive = () => {
+  chrome.runtime.getPlatformInfo(() => {});
+  setTimeout(keepAlive, 20000); // 每20秒ping一次
+};
+keepAlive();
 
 // 监听闹钟事件
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkMessages') {
-    console.log("Alarm triggered: closing and recreating offscreen document.");
-    await closeOffscreenDocument();
+    console.log("Alarm triggered: creating offscreen document.");   
     await createOffscreenDocument();
   }
 });
@@ -71,15 +78,16 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 // 监听来自其他脚本的消息
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async(message, sender, sendResponse) => {
   if (message.action === 'sidepanel_loaded') {
     console.log('Side panel has been loaded.');
-    resetBadge();
+    //resetBadge(); 
     sendResponse({status: "badge_reset"});
   } else if (message.action === 'unread_message_count') {
     console.log(`Received message count: ${message.count}`);
     handleMessageCount(message.count);
     sendResponse({status: "count_updated"});
+    await closeOffscreenDocument(); // 关闭离屏文档
   }
   return true; // 保持通道开放以备将来使用
 });
@@ -112,13 +120,15 @@ function resetBadge() {
   chrome.storage.local.set({ 'unreadMessages': 0 });
 }
 
-// 初始化：扩展启动时，从存储中恢复上次的计数
+// 初始化：扩展启动时，从存储中恢复上次的计数并设置闹钟
 (async () => {
   const result = await chrome.storage.local.get(['unreadMessages']);
   if (result.unreadMessages) {
     unreadMessageCount = result.unreadMessages;
     updateBadge();
   }
-  // 启动时也创建一次离屏文档
+  // 创建一个周期性闹钟，每30秒检查一次消息
+  chrome.alarms.create('checkMessages', { periodInMinutes: 1 });
+  // 启动时创建离屏文档并立即执行一次检查
   await createOffscreenDocument();
 })();

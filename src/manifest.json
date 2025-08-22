@@ -28,6 +28,7 @@
     "storage",
     "scripting",
     "tabs",
+    "background",
     "offscreen"
   ],
   "host_permissions": ["https://app.seesaw.me/*"],
