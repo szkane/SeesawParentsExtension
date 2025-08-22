@@ -4,12 +4,22 @@
  */
 
 function extractUnreadMessages() {
-  const title = document.title;
-  const match = title.match(/^\((\d+)\)/);
-  if (match && match[1]) {
-    return parseInt(match[1], 10);
+  let totalCount = 0;
+
+  // For notifications count. If the element doesn't exist, querySelector returns null,
+  // and the count remains 0, preventing errors.
+  const notificationsBadge = document.querySelector('span[data-testid=":badge-display-number"]');
+  if (notificationsBadge && notificationsBadge.textContent) {
+    totalCount += parseInt(notificationsBadge.textContent.trim(), 10) || 0;
   }
-  return 0;
+
+  // For messages count. Same as above, handles absence gracefully.
+  const messagesBadge = document.querySelector('span[data-testid=":reloaded-messaging-badge-count"]');
+  if (messagesBadge && messagesBadge.textContent) {
+    totalCount += parseInt(messagesBadge.textContent.trim(), 10) || 0;
+  }
+
+  return totalCount;
 }
 
 function sendCount() {
@@ -21,7 +31,7 @@ function sendCount() {
 const observer = new MutationObserver((mutations, obs) => {
   const messageButton = document.querySelector('button[data-testid=":reloaded-messaging-button"]');
   if (messageButton) {
-    setTimeout(sendCount,5000); // Check immediately
+    setTimeout(sendCount,5000); // Wait for angular to render the final count.
     obs.disconnect(); // Stop observing once the button is found
   }
 });
