@@ -22,15 +22,7 @@
   "side_panel": {
     "default_path": "sidepanel.html"
   },
-  "permissions": [
-    "sidePanel",
-    "alarms",
-    "storage",
-    "scripting",
-    "tabs",
-    "background",
-    "offscreen"
-  ],
+  "permissions": ["sidePanel", "alarms", "storage", "background", "offscreen"],
   "host_permissions": ["https://app.seesaw.me/*"],
   "content_scripts": [
     {
